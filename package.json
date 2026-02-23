@@ -1,0 +1,54 @@
+{
+  "name": "@opencanon/canon",
+  "version": "0.2.0",
+  "description": "Canon worldbuilding CLI — scaffold, validate, and manage shared fiction universes",
+  "type": "module",
+  "bin": {
+    "canon": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/test",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/core/index.js",
+      "types": "./dist/core/index.d.ts"
+    },
+    "./adapters/fs": {
+      "import": "./dist/adapters/fs.js",
+      "types": "./dist/adapters/fs.d.ts"
+    },
+    "./adapters/github": {
+      "import": "./dist/adapters/github.js",
+      "types": "./dist/adapters/github.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "ls dist/test/*.test.js >/dev/null 2>&1 && node --test dist/test/*.test.js || { echo 'No test files found in dist/test/'; exit 1; }",
+    "pretest": "tsc"
+  },
+  "keywords": [
+    "worldbuilding",
+    "canon",
+    "fiction",
+    "compliance",
+    "opencanon"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
