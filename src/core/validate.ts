@@ -162,15 +162,27 @@ export function validateStory(input: {
   knownEpisodes: ReadonlySet<string>
   canonLock: CanonLock | null
 }): StoryCheckReport {
-  const checks = [
-    checkMetadataSchema(input.rawMeta),
-    checkCharacters(input.meta, input.knownCharacters),
-    checkLocations(input.meta, input.knownLocations),
-    checkTimeline(input.meta),
-    checkContinuity(input.meta, input.knownEpisodes),
-    checkCanonVersion(input.meta, input.canonLock),
-    checkContributor(input.meta),
-  ]
+  const schemaCheck = checkMetadataSchema(input.rawMeta)
+
+  const checks: CheckResult[] = schemaCheck.pass
+    ? [
+        schemaCheck,
+        checkCharacters(input.meta, input.knownCharacters),
+        checkLocations(input.meta, input.knownLocations),
+        checkTimeline(input.meta),
+        checkContinuity(input.meta, input.knownEpisodes),
+        checkCanonVersion(input.meta, input.canonLock),
+        checkContributor(input.meta),
+      ]
+    : [
+        schemaCheck,
+        check("characters_valid", false, "skipped: metadata schema invalid"),
+        check("locations_valid", false, "skipped: metadata schema invalid"),
+        check("timeline_consistent", false, "skipped: metadata schema invalid"),
+        check("continuity_valid", false, "skipped: metadata schema invalid"),
+        check("canon_version_match", false, "skipped: metadata schema invalid"),
+        check("contributor_valid", false, "skipped: metadata schema invalid"),
+      ]
 
   return {
     storyId: input.meta.id,

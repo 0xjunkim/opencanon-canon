@@ -3,7 +3,8 @@
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import type { CanonLock, StoryMetadata, RepoModel } from "../core/types.js"
+import type { CanonLock, RepoModel } from "../core/types.js"
+import { parseCanonLock, parseMetadata } from "../core/contract.js"
 
 function listSubDirs(dirPath: string): string[] {
   if (!existsSync(dirPath)) return []
@@ -22,14 +23,13 @@ function listCanonEntries(dirPath: string): string[] {
 function readCanonLock(repoRoot: string): CanonLock | null {
   const lockPath = join(repoRoot, "canon.lock.json")
   if (!existsSync(lockPath)) return null
-  return JSON.parse(readFileSync(lockPath, "utf-8"))
+  return parseCanonLock(JSON.parse(readFileSync(lockPath, "utf-8")))
 }
 
-function readStoryMetadata(storyDir: string): { meta: StoryMetadata; raw: Record<string, unknown> } | null {
+function readStoryMetadata(storyDir: string): ReturnType<typeof parseMetadata> | null {
   const metaPath = join(storyDir, "metadata.json")
   if (!existsSync(metaPath)) return null
-  const raw = JSON.parse(readFileSync(metaPath, "utf-8"))
-  return { meta: raw as StoryMetadata, raw }
+  return parseMetadata(JSON.parse(readFileSync(metaPath, "utf-8")))
 }
 
 /**
@@ -44,7 +44,7 @@ export function loadRepoFromFs(repoRoot: string): RepoModel {
   const storyDirs = listSubDirs(storiesDir)
   const episodes = new Set(storyDirs)
 
-  const stories = new Map<string, { meta: StoryMetadata; raw: Record<string, unknown> }>()
+  const stories = new Map<string, ReturnType<typeof parseMetadata>>()
   for (const slug of storyDirs) {
     const result = readStoryMetadata(join(storiesDir, slug))
     if (result) {

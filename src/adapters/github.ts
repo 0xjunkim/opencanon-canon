@@ -2,7 +2,8 @@
  * GitHub adapter — pure conversion from parsed GitHub API data to RepoModel.
  * No I/O, no Octokit, no HTTP. Runs anywhere.
  */
-import type { CanonLock, StoryMetadata, RepoModel, GitHubRepoInput } from "../core/types.js"
+import type { CanonLock, RepoModel, GitHubRepoInput } from "../core/types.js"
+import { parseCanonLock, parseMetadata } from "../core/contract.js"
 
 /**
  * Build a RepoModel from pre-fetched GitHub API data.
@@ -18,7 +19,7 @@ export function buildRepoModel(input: GitHubRepoInput): RepoModel {
   let canonLock: CanonLock | null = null
   const lockContent = files.get("canon.lock.json")
   if (lockContent) {
-    canonLock = JSON.parse(lockContent)
+    canonLock = parseCanonLock(JSON.parse(lockContent))
   }
 
   // Extract character IDs from tree paths: canon/characters/<id>/ (dir) or canon/characters/<id>.json (blob)
@@ -61,12 +62,11 @@ export function buildRepoModel(input: GitHubRepoInput): RepoModel {
   }
 
   // Parse story metadata from pre-fetched file contents
-  const stories = new Map<string, { meta: StoryMetadata; raw: Record<string, unknown> }>()
+  const stories = new Map<string, ReturnType<typeof parseMetadata>>()
   for (const slug of episodes) {
     const metaContent = files.get(`stories/${slug}/metadata.json`)
     if (metaContent) {
-      const raw: Record<string, unknown> = JSON.parse(metaContent)
-      stories.set(slug, { meta: raw as unknown as StoryMetadata, raw })
+      stories.set(slug, parseMetadata(JSON.parse(metaContent)))
     }
   }
 

@@ -24,3 +24,13 @@ export {
   validateStory,
   validateRepo,
 } from "./validate.js"
+
+export {
+  METADATA_VERSION,
+  LOCK_VERSION,
+  REPORT_VERSION,
+  CHECK_IDS,
+  SchemaVersionError,
+  parseMetadata,
+  parseCanonLock,
+} from "./contract.js"

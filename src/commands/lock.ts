@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { execSync } from "node:child_process"
 import type { CanonLock } from "../core/types.js"
 import { loadRepoFromFs } from "../adapters/fs.js"
+import { parseCanonLock } from "../core/contract.js"
 import { validateRepo } from "../core/validate.js"
 
 function collectFiles(dir: string): string[] {
@@ -37,7 +38,13 @@ export const lockCommand = new Command("lock")
 
     // Pre-check: all stories must pass compliance before lock is allowed.
     // Skip if no canon.lock.json exists yet (genesis lock — nothing to check against).
-    const model = loadRepoFromFs(repoRoot)
+    let model
+    try {
+      model = loadRepoFromFs(repoRoot)
+    } catch (err) {
+      console.error(`Error: failed to read repo: ${err instanceof Error ? err.message : err}`)
+      process.exit(1)
+    }
     const isGenesis = model.canonLock === null
     if (!isGenesis) {
       const report = validateRepo(model)
@@ -89,7 +96,7 @@ export const lockCommand = new Command("lock")
     const existingLockPath = join(repoRoot, "canon.lock.json")
     if (existsSync(existingLockPath)) {
       try {
-        const prev = JSON.parse(readFileSync(existingLockPath, "utf-8"))
+        const prev = parseCanonLock(JSON.parse(readFileSync(existingLockPath, "utf-8")))
         if (Array.isArray(prev.contributors)) {
           for (const c of prev.contributors) contributors.add(c)
         }
