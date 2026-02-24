@@ -12,6 +12,7 @@ import {
   SchemaVersionError,
   parseMetadata,
   parseCanonLock,
+  assertReportVersion,
 } from "../core/contract.js"
 import { validateRepo } from "../core/validate.js"
 import { loadRepoFromFs } from "../adapters/fs.js"
@@ -173,7 +174,45 @@ describe("SchemaVersionError", () => {
   })
 })
 
-// ── Group 5: Adapter Integration ──
+// ── Group 5: assertReportVersion ──
+
+describe("assertReportVersion", () => {
+  it("accepts report with schemaVersion check.v2", () => {
+    assert.doesNotThrow(() => assertReportVersion({ schemaVersion: "check.v2" }))
+  })
+
+  it("rejects schemaVersion check.v1", () => {
+    assert.throws(
+      () => assertReportVersion({ schemaVersion: "check.v1" }),
+      (err: unknown) => {
+        assert.ok(err instanceof SchemaVersionError)
+        assert.equal(err.expected, "check.v2")
+        assert.equal(err.actual, "check.v1")
+        return true
+      },
+    )
+  })
+
+  it("rejects non-object input", () => {
+    assert.throws(() => assertReportVersion(null), SchemaVersionError)
+    assert.throws(() => assertReportVersion("string"), SchemaVersionError)
+    assert.throws(() => assertReportVersion([1, 2]), SchemaVersionError)
+  })
+
+  it("rejects missing schemaVersion", () => {
+    assert.throws(
+      () => assertReportVersion({}),
+      (err: unknown) => {
+        assert.ok(err instanceof SchemaVersionError)
+        assert.equal(err.expected, "check.v2")
+        assert.equal(err.actual, undefined)
+        return true
+      },
+    )
+  })
+})
+
+// ── Group 6: Adapter Integration ──
 
 describe("adapter integration", () => {
   it("fs adapter rejects v1 lock file", () => {

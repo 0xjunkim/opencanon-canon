@@ -32,7 +32,7 @@ Implemented (v0.2.1):
 - `checkCanonVersion()` (validate.ts): `canon_ref !== canonLock.canon_commit` produces a failing check result
 - `validateStory()` short-circuit: if `checkMetadataSchema` fails, remaining 6 checks auto-fail
 
-Planned:
+Implemented (v0.3.1):
 - `assertReportVersion()`: consumer-side defense — web rejects reports with unexpected schemaVersion
 
 Principle: no silent fallback, no best-effort parsing. Unknown version = rejected.
