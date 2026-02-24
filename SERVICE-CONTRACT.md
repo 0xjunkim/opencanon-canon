@@ -25,15 +25,15 @@ Check IDs are additive-only. Removal or rename is a breaking change.
 
 ## Fail-Closed Rule
 
-Current enforcement (v0.2.0):
-- `checkMetadataSchema()` (validate.ts:123): `schema_version !== "1.2"` produces a failing check result
-- `checkCanonVersion()` (validate.ts:99): `canon_ref !== canonLock.canon_commit` produces a failing check result
-- Adapters (fs.ts, github.ts): currently cast raw JSON to `StoryMetadata` without pre-validation
+Implemented (v0.2.1):
+- `parseMetadata()` / `parseCanonLock()` (contract.ts): adapter-level version gate — unsupported versions throw `SchemaVersionError` before entering RepoModel
+- Adapters (fs.ts, github.ts): all metadata/lock parsing routes through `parseMetadata()` / `parseCanonLock()`
+- `checkMetadataSchema()` (validate.ts): validates field presence, types, and `schema_version === "1.2"`
+- `checkCanonVersion()` (validate.ts): `canon_ref !== canonLock.canon_commit` produces a failing check result
+- `validateStory()` short-circuit: if `checkMetadataSchema` fails, remaining 6 checks auto-fail
 
-Planned (next implementation track):
-- `parseMetadata()` / `parseCanonLock()`: adapter-level version gate — unsupported versions rejected before entering RepoModel
+Planned:
 - `assertReportVersion()`: consumer-side defense — web rejects reports with unexpected schemaVersion
-- Until implemented: unsupported versions are caught by `checkMetadataSchema` as a secondary defense
 
 Principle: no silent fallback, no best-effort parsing. Unknown version = rejected.
 

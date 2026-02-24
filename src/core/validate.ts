@@ -10,6 +10,16 @@ function check(id: CheckId, pass: boolean, message?: string): CheckResult {
   return { id, pass, ...(!pass && message ? { message } : {}) }
 }
 
+function isBilingualObject(v: unknown): v is { ko: string; en: string } {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    typeof (v as Record<string, unknown>).ko === "string" &&
+    typeof (v as Record<string, unknown>).en === "string"
+  )
+}
+
 /**
  * Validate that all declared characters exist in the canon.
  */
@@ -79,9 +89,13 @@ export function checkContinuity(
     broken.push(`next_episode "${tc.next_episode}" not found`)
   }
   if (tc.thematic_echoes) {
-    for (const echo of tc.thematic_echoes) {
-      if (!knownEpisodes.has(echo)) {
-        broken.push(`thematic_echo "${echo}" not found`)
+    if (!Array.isArray(tc.thematic_echoes)) {
+      broken.push("thematic_echoes must be an array")
+    } else {
+      for (const echo of tc.thematic_echoes) {
+        if (!knownEpisodes.has(echo)) {
+          broken.push(`thematic_echo "${echo}" not found`)
+        }
       }
     }
   }
@@ -131,6 +145,23 @@ export function checkMetadataSchema(meta: Record<string, unknown>): CheckResult 
   }
   if (!Array.isArray(meta.locations)) {
     return check("metadata_schema_valid", false, `locations must be an array`)
+  }
+  for (const field of ["canon_ref", "id", "contributor", "timeline"] as const) {
+    if (typeof meta[field] !== "string") {
+      return check("metadata_schema_valid", false, `${field} must be a string`)
+    }
+  }
+  if (!isBilingualObject(meta.title)) {
+    return check("metadata_schema_valid", false, `title must be { ko: string, en: string }`)
+  }
+  if (!isBilingualObject(meta.synopsis)) {
+    return check("metadata_schema_valid", false, `synopsis must be { ko: string, en: string }`)
+  }
+  if (!(meta.characters as unknown[]).every((c: unknown) => typeof c === "string")) {
+    return check("metadata_schema_valid", false, `characters array must contain only strings`)
+  }
+  if (!(meta.locations as unknown[]).every((l: unknown) => typeof l === "string")) {
+    return check("metadata_schema_valid", false, `locations array must contain only strings`)
   }
   const validStatuses = ["canonical", "non-canonical"]
   if (!validStatuses.includes(meta.canon_status as string)) {
