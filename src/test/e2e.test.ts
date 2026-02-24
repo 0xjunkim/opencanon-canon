@@ -197,11 +197,11 @@ describe("multi-story check", () => {
   })
 })
 
-// ── Slug ≠ metadata.id warning ──
+// ── Slug ≠ metadata.id enforcement ──
 
-describe("slug vs metadata.id mismatch warning", () => {
-  it("warns when directory slug differs from metadata.id but still exits 0", () => {
-    const tmp = mkdtempSync(join(tmpdir(), "canon-slug-warn-"))
+describe("slug vs metadata.id mismatch enforcement", () => {
+  it("fails when directory slug differs from metadata.id", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "canon-slug-enforce-"))
     run(`node ${CLI} init ${tmp}`)
     run(`node ${CLI} new character alice -d ${tmp}`)
     run(`node ${CLI} new location seoul -d ${tmp}`)
@@ -229,11 +229,11 @@ describe("slug vs metadata.id mismatch warning", () => {
     meta.id = "episode-01"
     writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n")
 
-    // 2>&1 merges stderr into stdout so tryRun captures console.warn output
-    const result = tryRun(`node ${CLI} check ${tmp} 2>&1`)
-    assert.equal(result.code, 0, `check should pass, output: ${result.stdout}`)
-    assert.ok(result.stdout.includes("warning"), "should emit slug mismatch warning")
-    assert.ok(result.stdout.includes("ep01"), "warning should mention directory slug")
-    assert.ok(result.stdout.includes("episode-01"), "warning should mention metadata.id")
+    const result = tryRun(`node ${CLI} check ${tmp}`)
+    const output = result.stdout + result.stderr
+    assert.equal(result.code, 1, `check should fail, output: ${output}`)
+    assert.ok(output.includes("metadata_schema_valid"), "should fail metadata_schema_valid check")
+    assert.ok(output.includes("ep01"), "should mention directory slug")
+    assert.ok(output.includes("episode-01"), "should mention metadata.id")
   })
 })

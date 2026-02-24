@@ -128,7 +128,7 @@ export function checkCanonVersion(
 /**
  * Validate metadata.json schema conformance.
  */
-export function checkMetadataSchema(meta: Record<string, unknown>): CheckResult {
+export function checkMetadataSchema(meta: Record<string, unknown>, slug?: string): CheckResult {
   const required = ["schema_version", "canon_ref", "id", "episode", "title", "timeline", "synopsis", "characters", "locations", "contributor", "canon_status"]
   const missing = required.filter(f => !(f in meta))
   if (missing.length > 0) {
@@ -163,6 +163,10 @@ export function checkMetadataSchema(meta: Record<string, unknown>): CheckResult 
   if (!(meta.locations as unknown[]).every((l: unknown) => typeof l === "string")) {
     return check("metadata_schema_valid", false, `locations array must contain only strings`)
   }
+  if (slug !== undefined && typeof meta.id === "string" && meta.id !== slug) {
+    return check("metadata_schema_valid", false,
+      `metadata.id "${meta.id}" must match directory slug "${slug}"`)
+  }
   const validStatuses = ["canonical", "non-canonical"]
   if (!validStatuses.includes(meta.canon_status as string)) {
     return check("metadata_schema_valid", false, `canon_status must be "canonical" or "non-canonical"`)
@@ -188,12 +192,13 @@ export function checkContributor(meta: StoryMetadata): CheckResult {
 export function validateStory(input: {
   meta: StoryMetadata
   rawMeta: Record<string, unknown>
+  slug?: string
   knownCharacters: ReadonlySet<string>
   knownLocations: ReadonlySet<string>
   knownEpisodes: ReadonlySet<string>
   canonLock: CanonLock | null
 }): StoryCheckReport {
-  const schemaCheck = checkMetadataSchema(input.rawMeta)
+  const schemaCheck = checkMetadataSchema(input.rawMeta, input.slug)
 
   const checks: CheckResult[] = schemaCheck.pass
     ? [
@@ -229,10 +234,11 @@ export function validateStory(input: {
 export function validateRepo(model: RepoModel): RepoCheckReport {
   const stories: StoryCheckReport[] = []
 
-  for (const [, { meta, raw }] of model.stories) {
+  for (const [slug, { meta, raw }] of model.stories) {
     stories.push(validateStory({
       meta,
       rawMeta: raw,
+      slug,
       knownCharacters: model.characters,
       knownLocations: model.locations,
       knownEpisodes: model.episodes,

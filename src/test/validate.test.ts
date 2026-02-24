@@ -97,6 +97,27 @@ describe("checkMetadataSchema type validation", () => {
   })
 })
 
+// ── checkMetadataSchema slug enforcement ──
+
+describe("checkMetadataSchema slug enforcement", () => {
+  it("passes when slug matches metadata.id", () => {
+    const result = checkMetadataSchema(validMeta, "ep01")
+    assert.equal(result.pass, true)
+  })
+
+  it("fails when slug differs from metadata.id", () => {
+    const result = checkMetadataSchema(validMeta, "episode-01")
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("ep01"))
+    assert.ok(result.message?.includes("episode-01"))
+  })
+
+  it("passes when slug is undefined (backwards compat)", () => {
+    const result = checkMetadataSchema(validMeta)
+    assert.equal(result.pass, true)
+  })
+})
+
 // ── checkContinuity defensive coding ──
 
 describe("checkContinuity defensive coding", () => {
