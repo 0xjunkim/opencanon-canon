@@ -1,6 +1,6 @@
 # ADR-002: Canonical Identifier — Directory Slug as Primary Key
 
-Status: Proposed
+Status: Accepted
 Date: 2025-02-24
 
 ## Context
