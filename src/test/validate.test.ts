@@ -83,6 +83,18 @@ describe("checkMetadataSchema type validation", () => {
     assert.equal(result.pass, false)
     assert.ok(result.message?.includes("timeline must be a string"))
   })
+
+  it("rejects episode as NaN", () => {
+    const result = checkMetadataSchema({ ...validMeta, episode: NaN })
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("episode"))
+  })
+
+  it("rejects episode as Infinity", () => {
+    const result = checkMetadataSchema({ ...validMeta, episode: Infinity })
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("episode"))
+  })
 })
 
 // ── checkContinuity defensive coding ──

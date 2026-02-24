@@ -196,3 +196,44 @@ describe("multi-story check", () => {
     assert.ok(result.stdout.includes("ep02"), "should mention ep02")
   })
 })
+
+// ── Slug ≠ metadata.id warning ──
+
+describe("slug vs metadata.id mismatch warning", () => {
+  it("warns when directory slug differs from metadata.id but still exits 0", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "canon-slug-warn-"))
+    run(`node ${CLI} init ${tmp}`)
+    run(`node ${CLI} new character alice -d ${tmp}`)
+    run(`node ${CLI} new location seoul -d ${tmp}`)
+    run(`node ${CLI} new story ep01 -d ${tmp}`)
+
+    // git init + commit + genesis lock
+    run("git init", { cwd: tmp })
+    run("git add -A", { cwd: tmp })
+    run('git commit -m "init" --no-gpg-sign', { cwd: tmp })
+    run(`node ${CLI} lock ${tmp}`)
+
+    const lock = JSON.parse(readFileSync(join(tmp, "canon.lock.json"), "utf-8"))
+    const metaPath = join(tmp, "stories", "ep01", "metadata.json")
+    const meta = JSON.parse(readFileSync(metaPath, "utf-8"))
+    meta.canon_ref = lock.canon_commit
+    meta.characters = ["alice"]
+    meta.locations = ["seoul"]
+    meta.episode = 1
+    meta.title = { ko: "t", en: "t" }
+    meta.synopsis = { ko: "s", en: "s" }
+    meta.contributor = "tester"
+    meta.canon_status = "canonical"
+    meta.timeline = "2025-03-15"
+    // Set metadata.id to something different from directory slug "ep01"
+    meta.id = "episode-01"
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n")
+
+    // 2>&1 merges stderr into stdout so tryRun captures console.warn output
+    const result = tryRun(`node ${CLI} check ${tmp} 2>&1`)
+    assert.equal(result.code, 0, `check should pass, output: ${result.stdout}`)
+    assert.ok(result.stdout.includes("warning"), "should emit slug mismatch warning")
+    assert.ok(result.stdout.includes("ep01"), "warning should mention directory slug")
+    assert.ok(result.stdout.includes("episode-01"), "warning should mention metadata.id")
+  })
+})

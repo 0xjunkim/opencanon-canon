@@ -43,6 +43,13 @@ export const checkCommand = new Command("check")
     console.log()
     console.log(`${report.passingStories}/${report.totalStories} stories passing`)
 
+    // Slug ↔ metadata.id mismatch advisory (v0.2.3, enforced in v0.3.0)
+    for (const [slug, { meta }] of model.stories) {
+      if (typeof meta.id === "string" && slug !== meta.id) {
+        console.warn(`  warning: directory "${slug}" ≠ metadata.id "${meta.id}" (will be enforced in v0.3.0)`)
+      }
+    }
+
     if (report.passingStories < report.totalStories) {
       process.exit(1)
     }

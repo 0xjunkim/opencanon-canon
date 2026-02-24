@@ -137,8 +137,8 @@ export function checkMetadataSchema(meta: Record<string, unknown>): CheckResult 
   if (meta.schema_version !== "1.2") {
     return check("metadata_schema_valid", false, `Expected schema_version "1.2", got "${meta.schema_version}"`)
   }
-  if (typeof meta.episode !== "number") {
-    return check("metadata_schema_valid", false, `episode must be a number`)
+  if (typeof meta.episode !== "number" || !Number.isFinite(meta.episode)) {
+    return check("metadata_schema_valid", false, `episode must be a finite number`)
   }
   if (!Array.isArray(meta.characters)) {
     return check("metadata_schema_valid", false, `characters must be an array`)
