@@ -41,6 +41,16 @@ export function parseMetadata(raw: unknown): { meta: StoryMetadata; raw: Record<
   return { meta: obj as unknown as StoryMetadata, raw: obj }
 }
 
+export function assertReportVersion(report: unknown): void {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    throw new SchemaVersionError(REPORT_VERSION, undefined)
+  }
+  const obj = report as Record<string, unknown>
+  if (obj.schemaVersion !== REPORT_VERSION) {
+    throw new SchemaVersionError(REPORT_VERSION, obj.schemaVersion)
+  }
+}
+
 export function parseCanonLock(raw: unknown): CanonLock {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new SchemaVersionError(LOCK_VERSION, undefined)

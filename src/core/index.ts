@@ -33,4 +33,5 @@ export {
   SchemaVersionError,
   parseMetadata,
   parseCanonLock,
+  assertReportVersion,
 } from "./contract.js"
