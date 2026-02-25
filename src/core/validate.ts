@@ -177,12 +177,19 @@ export function checkMetadataSchema(meta: Record<string, unknown>, slug?: string
 /**
  * Validate that contributor field is present and non-empty.
  */
+/** GitHub/git-style username: alphanumeric + hyphens/underscores, 1–39 chars, no leading/trailing hyphen */
+const CONTRIBUTOR_RE = /^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,37}[a-zA-Z0-9_]$|^[a-zA-Z0-9_]$/
+
 export function checkContributor(meta: StoryMetadata): CheckResult {
-  const valid = typeof meta.contributor === "string" && meta.contributor.trim().length > 0
+  const value = meta.contributor
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return check("contributor_valid", false, "contributor must be a non-empty string")
+  }
+  const valid = CONTRIBUTOR_RE.test(value.trim())
   return check(
     "contributor_valid",
     valid,
-    valid ? undefined : "contributor must be a non-empty string",
+    valid ? undefined : `contributor "${value}" is not a valid username (alphanumeric/hyphens/underscores, 1–39 chars)`,
   )
 }
 

@@ -8,6 +8,25 @@ import { loadRepoFromFs } from "../adapters/fs.js"
 import { parseCanonLock } from "../core/contract.js"
 import { validateRepo } from "../core/validate.js"
 
+function updateStoryRefs(repoRoot: string, newRef: string): number {
+  const storiesDir = join(repoRoot, "stories")
+  if (!existsSync(storiesDir)) return 0
+  const entries = readdirSync(storiesDir, { withFileTypes: true })
+  let count = 0
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const metaPath = join(storiesDir, entry.name, "metadata.json")
+    if (!existsSync(metaPath)) continue
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, "utf-8"))
+      meta.canon_ref = newRef
+      writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n")
+      count++
+    } catch { /* skip malformed */ }
+  }
+  return count
+}
+
 function collectFiles(dir: string): string[] {
   const results: string[] = []
   if (!existsSync(dir)) return results
@@ -27,7 +46,8 @@ function collectFiles(dir: string): string[] {
 export const lockCommand = new Command("lock")
   .description("Regenerate canon.lock.json from current canon/ contents")
   .argument("[dir]", "repo root directory", ".")
-  .action((dir: string) => {
+  .option("--update-refs", "update canon_ref in all story metadata.json to the new commit")
+  .action((dir: string, opts: { updateRefs?: boolean }) => {
     const repoRoot = resolve(dir)
     const canonDir = join(repoRoot, "canon")
 
@@ -121,4 +141,11 @@ export const lockCommand = new Command("lock")
     console.log(`canon.lock.json updated`)
     console.log(`  commit: ${canonCommit}`)
     console.log(`  hash:   ${worldbuildingHash}`)
+
+    if (opts.updateRefs) {
+      const updated = updateStoryRefs(repoRoot, canonCommit)
+      if (updated > 0) {
+        console.log(`  refs:   updated ${updated} story metadata.json`)
+      }
+    }
   })
