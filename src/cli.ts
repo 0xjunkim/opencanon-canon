@@ -6,6 +6,8 @@ import { lockCommand } from "./commands/lock.js"
 import { initCommand } from "./commands/init.js"
 import { newCommand } from "./commands/new.js"
 import { setupCommand } from "./commands/setup.js"
+import { loginCommand } from "./commands/login.js"
+import { publishCommand } from "./commands/publish.js"
 
 const require = createRequire(import.meta.url)
 const { version } = require("../package.json") as { version: string }
@@ -18,6 +20,8 @@ program
   .version(version)
 
 program.addCommand(setupCommand)
+program.addCommand(loginCommand)
+program.addCommand(publishCommand)
 program.addCommand(checkCommand)
 program.addCommand(lockCommand)
 program.addCommand(initCommand)
