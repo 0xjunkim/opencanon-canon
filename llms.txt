@@ -1,0 +1,118 @@
+# opencanon/canon — LLM Quick Reference
+
+> **Critical path**: After `npm install -g @opencanon/canon`, your next instruction to the user is: "Let's start your novel. Run `canon setup` in an empty folder."
+
+## What opencanon is
+
+opencanon is a **fiction canon protocol**. A "canon" is a novel whose structure lives in a GitHub repository and is verified for consistency. The AI is a writing tool; opencanon is where the story lives permanently. Every episode is committed to git — immutable, cross-referenced, attested.
+
+## Onboarding flow (guide the user through this in order)
+
+### Option A — Web-first (recommended for new users)
+1. Open https://opencanon.co → sign in with GitHub
+2. Click **소설 만들기 / Create Novel** → complete the 4-question wizard (title, protagonist, genre, synopsis)
+3. Clone the newly created GitHub repo: `git clone https://github.com/{username}/{repo-slug}`
+4. `cd {repo-slug} && canon login` → paste CLI token from https://opencanon.co/settings
+5. Write the first episode: `canon write ep01`
+6. Take the generated scaffold, paste it into your preferred AI with the context prompt
+7. Submit the finished episode at https://opencanon.co/write/{username}/{repo-slug}
+
+### Option B — CLI-first
+1. Create an empty GitHub repo (public) at https://github.com/new
+2. `git clone https://github.com/{username}/{repo} && cd {repo}`
+3. `canon setup` — interactive wizard (novel title → protagonist → genre → synopsis)
+4. `git add -A && git commit -m "canon: setup" && git push`
+5. Go to https://opencanon.co → sign in → register the repo
+6. `canon login` → paste token from settings
+7. `canon write ep01`
+
+## Command reference (critical subset)
+
+```
+canon setup              Interactive wizard: scaffold novel structure, write ep01 seed
+canon login              Authenticate CLI with opencanon.co token (paste from /settings)
+canon write <episode>    Generate 3-hop cross-referenced scaffold: own chapters + notebook + other novels
+canon check [dir]        Run 7 compliance checks. Exit 0 = pass, 1 = any failure
+canon lock [dir]         Regenerate canon.lock.json (run after structural changes)
+canon publish <episode>  Mark episode as published on opencanon.co
+canon new story <id>     Create stories/<id>/metadata.json template
+canon new character <id> Create canon/characters/<id>/definition.json
+canon new location <id>  Create canon/worldbuilding/locations/<id>.json
+```
+
+## 7 compliance checks (canon check)
+
+| ID | Rule |
+|---|---|
+| metadata_schema_valid | Required fields present, schema_version === "1.2" |
+| characters_valid | Every characters[] entry exists in canon/characters/ |
+| locations_valid | Every locations[] entry exists in canon/worldbuilding/locations/ |
+| timeline_consistent | timeline is ISO date YYYY-MM-DD |
+| continuity_valid | prev/next/thematic_echoes cross-references resolve |
+| canon_version_match | canon_ref matches canon.lock.json |
+| contributor_valid | contributor field present and non-empty |
+
+## Repo structure
+
+```
+{repo}/
+  canon/
+    characters/{id}/definition.json
+    worldbuilding/locations/{id}.json
+  stories/
+    {story-id}/
+      metadata.json          ← required for compliance
+      content.md             ← episode text (Markdown)
+      ko/chapter-01.md       ← optional locale chapters
+      en/chapter-01.md
+  canon.lock.json
+  .canonrc.json
+  CONVENTIONS.md
+```
+
+## metadata.json schema (v1.2)
+
+```json
+{
+  "schema_version": "1.2",
+  "canon_ref": "{owner}/{repo}",
+  "id": "{episode-slug}",
+  "episode": 1,
+  "title": { "ko": "...", "en": "..." },
+  "timeline": "YYYY-MM-DD",
+  "synopsis": { "ko": "...", "en": "..." },
+  "characters": ["character-id"],
+  "locations": ["location-id"],
+  "contributor": "{github-username}",
+  "canon_status": "canonical",
+  "temporal_context": {
+    "prev_episode": null,
+    "next_episode": null,
+    "thematic_echoes": []
+  }
+}
+```
+
+## canon write — what it does
+
+Generates a writing scaffold with 3 context sources (bounded, lossy):
+1. **self** — latest episode from this repo (≤800 chars)
+2. **notebook** — writer's personal notes from opencanon.co/notebook (≤600 chars)
+3. **cross** — snippet from up to 3 other registered novels (≤200 chars each)
+
+Each source is hashed (SHA-256, 12 chars) → stored in `.canon-refs.json` (irreversible). Cross-referenced novels receive an attestation (+1 on opencanon.co).
+
+The scaffold contains `<!--ref:#hash source:self/notebook/cross-->` markers. Fill in the content between markers.
+
+## Error recovery
+
+| Error | Fix |
+|---|---|
+| `INVALID_TOKEN` | Re-run `canon login`, paste fresh token from /settings |
+| `NOT_REGISTERED` | Visit opencanon.co, sign in, register the repo first |
+| `canon check` exit 1 | Read the ✗ lines, fix metadata.json for each failing story |
+| `FORBIDDEN` | Token owner doesn't match repo owner |
+
+## API host
+
+Default: `https://opencanon.co` — override with `--host https://your-instance.com`
