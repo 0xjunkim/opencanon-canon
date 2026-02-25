@@ -3,6 +3,7 @@ import { resolve, join } from "node:path"
 import { mkdirSync, writeFileSync, existsSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { conventionsTemplate } from "../templates/conventions.js"
+import { gettingStartedTemplate } from "../templates/getting-started.js"
 import type { CanonConfig } from "../core/types.js"
 
 function detectAuthor(): string {
@@ -35,9 +36,10 @@ export const initCommand = new Command("init")
       writeFileSync(conventions, conventionsTemplate())
     }
 
+    const author = opts.author ?? detectAuthor()
+
     const rcPath = join(root, ".canonrc.json")
     if (!existsSync(rcPath)) {
-      const author = opts.author ?? detectAuthor()
       const config: CanonConfig = {
         schema_version: "canonrc.v1",
         author,
@@ -46,10 +48,16 @@ export const initCommand = new Command("init")
       writeFileSync(rcPath, JSON.stringify(config, null, 2) + "\n")
     }
 
+    const gettingStartedPath = join(root, "GETTING-STARTED.md")
+    if (!existsSync(gettingStartedPath)) {
+      writeFileSync(gettingStartedPath, gettingStartedTemplate(author))
+    }
+
     console.log("Canon repo initialized:")
     console.log("  canon/characters/")
     console.log("  canon/worldbuilding/locations/")
     console.log("  stories/")
     console.log("  CONVENTIONS.md")
+    console.log("  GETTING-STARTED.md")
     console.log("  .canonrc.json")
   })
