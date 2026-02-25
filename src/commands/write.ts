@@ -89,6 +89,28 @@ async function fetchCrossRefs(
   } catch { return [] }
 }
 
+// ─── Fire-and-forget attestation for cross-referenced repos ──────────────────
+async function attestCrossRefs(
+  host: string,
+  token: string,
+  owner: string,
+  crossRefs: Array<{ owner: string; repo: string }>
+): Promise<void> {
+  for (const ref of crossRefs) {
+    try {
+      await fetch(`${host}/api/attest`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "X-Canon-Owner": owner,
+        },
+        body: JSON.stringify({ target: `${ref.owner}/${ref.repo}` }),
+      })
+    } catch { /* silent — attest is best-effort */ }
+  }
+}
+
 // ─── Detect current repo owner from .canonrc ─────────────────────────────────
 function detectOwner(root: string): string {
   const rcPath = join(root, ".canonrc.json")
@@ -181,6 +203,11 @@ export const writeCommand = new Command("write")
           createdAt: now,
         })
         console.log(`  ✓ 교차 참조: ${cr.owner}/${cr.repo} (#${sha12(cr.content)})`)
+      }
+
+      // Attest each cross-referenced novel (best-effort, fire-and-forget)
+      if (crossRefs.length > 0 && config?.token) {
+        attestCrossRefs(host, config.token, owner, crossRefs).catch(() => {})
       }
     }
 
