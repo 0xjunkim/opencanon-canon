@@ -9,6 +9,8 @@ export interface MetadataOptions {
   characters?: string[]
   locations?: string[]
   canonStatus?: "canonical" | "non-canonical"
+  themes?: string[]
+  canonEvents?: string[]
 }
 
 export function metadataTemplate(id: string, contributorOrOpts: string | MetadataOptions = ""): string {
@@ -16,7 +18,7 @@ export function metadataTemplate(id: string, contributorOrOpts: string | Metadat
     ? { contributor: contributorOrOpts }
     : contributorOrOpts
 
-  return JSON.stringify({
+  const meta: Record<string, unknown> = {
     schema_version: "1.2",
     canon_ref: "",
     id,
@@ -28,5 +30,8 @@ export function metadataTemplate(id: string, contributorOrOpts: string | Metadat
     locations: opts.locations ?? [],
     contributor: opts.contributor ?? "",
     canon_status: opts.canonStatus ?? "non-canonical",
-  }, null, 2) + "\n"
+  }
+  if (opts.themes && opts.themes.length > 0) meta["themes"] = opts.themes
+  if (opts.canonEvents && opts.canonEvents.length > 0) meta["canon_events"] = opts.canonEvents
+  return JSON.stringify(meta, null, 2) + "\n"
 }

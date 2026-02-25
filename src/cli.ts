@@ -5,6 +5,7 @@ import { checkCommand } from "./commands/check.js"
 import { lockCommand } from "./commands/lock.js"
 import { initCommand } from "./commands/init.js"
 import { newCommand } from "./commands/new.js"
+import { setupCommand } from "./commands/setup.js"
 
 const require = createRequire(import.meta.url)
 const { version } = require("../package.json") as { version: string }
@@ -16,6 +17,7 @@ program
   .description("Canon worldbuilding CLI — scaffold, validate, and manage shared fiction universes")
   .version(version)
 
+program.addCommand(setupCommand)
 program.addCommand(checkCommand)
 program.addCommand(lockCommand)
 program.addCommand(initCommand)
