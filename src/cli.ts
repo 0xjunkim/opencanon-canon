@@ -9,6 +9,7 @@ import { setupCommand } from "./commands/setup.js"
 import { loginCommand } from "./commands/login.js"
 import { publishCommand } from "./commands/publish.js"
 import { writeCommand } from "./commands/write.js"
+import { migrateCommand } from "./commands/migrate.js"
 
 const require = createRequire(import.meta.url)
 const { version } = require("../package.json") as { version: string }
@@ -28,5 +29,6 @@ program.addCommand(lockCommand)
 program.addCommand(initCommand)
 program.addCommand(newCommand)
 program.addCommand(writeCommand)
+program.addCommand(migrateCommand)
 
 program.parse()
