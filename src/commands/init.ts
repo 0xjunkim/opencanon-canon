@@ -1,13 +1,23 @@
 import { Command } from "commander"
 import { resolve, join } from "node:path"
 import { mkdirSync, writeFileSync, existsSync } from "node:fs"
+import { execSync } from "node:child_process"
 import { conventionsTemplate } from "../templates/conventions.js"
 import type { CanonConfig } from "../core/types.js"
+
+function detectAuthor(): string {
+  try {
+    return execSync("git config user.name", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim()
+  } catch {
+    return ""
+  }
+}
 
 export const initCommand = new Command("init")
   .description("Scaffold a new canon worldbuilding repo")
   .argument("[dir]", "target directory", ".")
-  .action((dir: string) => {
+  .option("--author <name>", "author name (defaults to git config user.name)")
+  .action((dir: string, opts: { author?: string }) => {
     const root = resolve(dir)
 
     const dirs = [
@@ -27,9 +37,10 @@ export const initCommand = new Command("init")
 
     const rcPath = join(root, ".canonrc.json")
     if (!existsSync(rcPath)) {
+      const author = opts.author ?? detectAuthor()
       const config: CanonConfig = {
         schema_version: "canonrc.v1",
-        author: "",
+        author,
         default_lang: "ko",
       }
       writeFileSync(rcPath, JSON.stringify(config, null, 2) + "\n")
