@@ -5,7 +5,7 @@ import { createHash } from "node:crypto"
 import { execSync } from "node:child_process"
 import type { CanonLock } from "../core/types.js"
 import { loadRepoFromFs } from "../adapters/fs.js"
-import { parseCanonLock } from "../core/contract.js"
+import { parseCanonLock, SchemaVersionError } from "../core/contract.js"
 import { validateRepo } from "../core/validate.js"
 
 function updateStoryRefs(repoRoot: string, newRef: string): number {
@@ -62,6 +62,10 @@ export const lockCommand = new Command("lock")
     try {
       model = loadRepoFromFs(repoRoot)
     } catch (err) {
+      if (err instanceof SchemaVersionError && String(err.actual) === "1.3") {
+        console.error("Error: v1.3 metadata detected; lock for v1.3 repos not yet supported")
+        process.exit(1)
+      }
       console.error(`Error: failed to read repo: ${err instanceof Error ? err.message : err}`)
       process.exit(1)
     }

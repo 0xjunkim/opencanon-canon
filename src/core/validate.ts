@@ -4,7 +4,8 @@
  * Pure functions — no I/O, no side effects.
  * Shared between CLI (local check) and adapter (engine observation).
  */
-import type { StoryMetadata, CanonLock, CheckResult, StoryCheckReport, RepoCheckReport, CheckId, RepoModel } from "./types.js"
+import type { StoryMetadata, CanonLock, CheckResult, StoryCheckReport, RepoCheckReport, CheckId, RepoModel, StoryMetadata_v1_3, CheckIdV3, CheckResultV3, StoryCheckReportV3, RepoCheckReportV3, RepoModelAny } from "./types.js"
+import { hasExcessiveCombining, hasProhibitedCodepoints } from "./sanitize.js"
 
 function check(id: CheckId, pass: boolean, message?: string): CheckResult {
   return { id, pass, ...(!pass && message ? { message } : {}) }
@@ -260,6 +261,202 @@ export function validateRepo(model: RepoModel): RepoCheckReport {
 
   return {
     schemaVersion: "check.v2",
+    summary: {
+      score: totalStories > 0 ? passingStories / totalStories : 0,
+      totalChecks,
+      passingChecks,
+    },
+    stories,
+    totalStories,
+    passingStories,
+  }
+}
+
+// ── v1.3 validation (additive — all functions above are frozen) ──
+
+function checkV3(id: CheckIdV3, pass: boolean, message?: string): CheckResultV3 {
+  return { id, pass, ...(!pass && message ? { message } : {}) }
+}
+
+/**
+ * Validate v1.3 metadata schema conformance.
+ * Flat title/synopsis (string), required lang, derivative canon_status, Unicode safety.
+ */
+export function checkMetadataSchema_v1_3(meta: Record<string, unknown>, slug?: string): CheckResultV3 {
+  const required = ["schema_version", "canon_ref", "id", "episode", "lang", "title", "timeline", "synopsis", "characters", "locations", "contributor", "canon_status"]
+  const missing = required.filter(f => !(f in meta))
+  if (missing.length > 0) {
+    return checkV3("metadata_schema_valid", false, `Missing fields: ${missing.join(", ")}`)
+  }
+  if (meta.schema_version !== "1.3") {
+    return checkV3("metadata_schema_valid", false, `Expected schema_version "1.3", got "${meta.schema_version}"`)
+  }
+  if (typeof meta.lang !== "string" || meta.lang.trim().length === 0) {
+    return checkV3("metadata_schema_valid", false, "lang must be a non-empty string")
+  }
+  if (typeof meta.episode !== "number" || !Number.isFinite(meta.episode)) {
+    return checkV3("metadata_schema_valid", false, "episode must be a finite number")
+  }
+  for (const field of ["canon_ref", "id", "contributor", "timeline", "title", "synopsis"] as const) {
+    if (typeof meta[field] !== "string") {
+      return checkV3("metadata_schema_valid", false, `${field} must be a string`)
+    }
+  }
+  if (!Array.isArray(meta.characters)) {
+    return checkV3("metadata_schema_valid", false, "characters must be an array")
+  }
+  if (!Array.isArray(meta.locations)) {
+    return checkV3("metadata_schema_valid", false, "locations must be an array")
+  }
+  if (!(meta.characters as unknown[]).every((c: unknown) => typeof c === "string")) {
+    return checkV3("metadata_schema_valid", false, "characters array must contain only strings")
+  }
+  if (!(meta.locations as unknown[]).every((l: unknown) => typeof l === "string")) {
+    return checkV3("metadata_schema_valid", false, "locations array must contain only strings")
+  }
+  if (slug !== undefined && typeof meta.id === "string" && meta.id !== slug) {
+    return checkV3("metadata_schema_valid", false,
+      `metadata.id "${meta.id}" must match directory slug "${slug}"`)
+  }
+  const validStatuses = ["canonical", "non-canonical", "derivative"]
+  if (!validStatuses.includes(meta.canon_status as string)) {
+    return checkV3("metadata_schema_valid", false, `canon_status must be "canonical", "non-canonical", or "derivative"`)
+  }
+  // Unicode safety (reject only, never modify)
+  const title = meta.title as string
+  const synopsis = meta.synopsis as string
+  if (hasExcessiveCombining(title)) {
+    return checkV3("metadata_schema_valid", false, "title contains excessive combining marks (possible Zalgo)")
+  }
+  if (hasExcessiveCombining(synopsis)) {
+    return checkV3("metadata_schema_valid", false, "synopsis contains excessive combining marks (possible Zalgo)")
+  }
+  if (hasProhibitedCodepoints(title)) {
+    return checkV3("metadata_schema_valid", false, "title contains prohibited Unicode codepoints (bidi overrides)")
+  }
+  if (hasProhibitedCodepoints(synopsis)) {
+    return checkV3("metadata_schema_valid", false, "synopsis contains prohibited Unicode codepoints (bidi overrides)")
+  }
+  return checkV3("metadata_schema_valid", true)
+}
+
+/**
+ * Validate derived_from consistency:
+ * - derivative status requires derived_from
+ * - derived_from must reference a known episode
+ * - non-derivative should not have derived_from
+ */
+export function checkDerivedFrom(
+  meta: StoryMetadata_v1_3,
+  knownEpisodes: ReadonlySet<string>,
+): CheckResultV3 {
+  const isDerivative = meta.canon_status === "derivative"
+  const hasDerivedFrom = typeof meta.derived_from === "string" && meta.derived_from.length > 0
+
+  if (isDerivative && !hasDerivedFrom) {
+    return checkV3("derived_from_valid", false, `derivative status requires derived_from field`)
+  }
+  if (!isDerivative && hasDerivedFrom) {
+    return checkV3("derived_from_valid", false, `derived_from should only be set when canon_status is "derivative"`)
+  }
+  if (hasDerivedFrom && !knownEpisodes.has(meta.derived_from!)) {
+    return checkV3("derived_from_valid", false, `derived_from "${meta.derived_from}" does not match any known episode`)
+  }
+  return checkV3("derived_from_valid", true)
+}
+
+/**
+ * Run all 8 checks for a single v1.3 story.
+ * Reuses shared checks by casting common fields.
+ */
+export function validateStory_v1_3(input: {
+  meta: StoryMetadata_v1_3
+  rawMeta: Record<string, unknown>
+  slug?: string
+  knownCharacters: ReadonlySet<string>
+  knownLocations: ReadonlySet<string>
+  knownEpisodes: ReadonlySet<string>
+  canonLock: CanonLock | null
+}): StoryCheckReportV3 {
+  const schemaCheck = checkMetadataSchema_v1_3(input.rawMeta, input.slug)
+
+  // Reuse shared checks — cast v1.3 meta to v1.2 for structurally compatible fields
+  const metaCompat = input.meta as unknown as StoryMetadata
+
+  const checks: CheckResultV3[] = schemaCheck.pass
+    ? [
+        schemaCheck,
+        checkCharacters(metaCompat, input.knownCharacters) as CheckResultV3,
+        checkLocations(metaCompat, input.knownLocations) as CheckResultV3,
+        checkTimeline(metaCompat) as CheckResultV3,
+        checkContinuity(metaCompat, input.knownEpisodes) as CheckResultV3,
+        checkCanonVersion(metaCompat, input.canonLock) as CheckResultV3,
+        checkContributor(metaCompat) as CheckResultV3,
+        checkDerivedFrom(input.meta, input.knownEpisodes),
+      ]
+    : [
+        schemaCheck,
+        checkV3("characters_valid", false, "skipped: metadata schema invalid"),
+        checkV3("locations_valid", false, "skipped: metadata schema invalid"),
+        checkV3("timeline_consistent", false, "skipped: metadata schema invalid"),
+        checkV3("continuity_valid", false, "skipped: metadata schema invalid"),
+        checkV3("canon_version_match", false, "skipped: metadata schema invalid"),
+        checkV3("contributor_valid", false, "skipped: metadata schema invalid"),
+        checkV3("derived_from_valid", false, "skipped: metadata schema invalid"),
+      ]
+
+  return {
+    storyId: input.meta.id,
+    checks,
+    allPass: checks.every(c => c.pass),
+  }
+}
+
+/**
+ * Run all checks for a mixed-version repo.
+ * v1.2 stories get 7 checks, v1.3 stories get 8 checks.
+ * Returns check.v3 report.
+ */
+export function validateRepoAny(model: RepoModelAny): RepoCheckReportV3 {
+  const stories: StoryCheckReportV3[] = []
+
+  for (const [slug, parsed] of model.stories) {
+    if (parsed.version === "1.2") {
+      // Run v1.2 validation, convert result to V3 shape
+      const v2Report = validateStory({
+        meta: parsed.meta,
+        rawMeta: parsed.raw,
+        slug,
+        knownCharacters: model.characters,
+        knownLocations: model.locations,
+        knownEpisodes: model.episodes,
+        canonLock: model.canonLock,
+      })
+      stories.push({
+        storyId: v2Report.storyId,
+        checks: v2Report.checks as CheckResultV3[],
+        allPass: v2Report.allPass,
+      })
+    } else {
+      stories.push(validateStory_v1_3({
+        meta: parsed.meta,
+        rawMeta: parsed.raw,
+        slug,
+        knownCharacters: model.characters,
+        knownLocations: model.locations,
+        knownEpisodes: model.episodes,
+        canonLock: model.canonLock,
+      }))
+    }
+  }
+
+  const totalStories = stories.length
+  const passingStories = stories.filter(s => s.allPass).length
+  const totalChecks = stories.reduce((sum, s) => sum + s.checks.length, 0)
+  const passingChecks = stories.reduce((sum, s) => sum + s.checks.filter(c => c.pass).length, 0)
+
+  return {
+    schemaVersion: "check.v3",
     summary: {
       score: totalStories > 0 ? passingStories / totalStories : 0,
       totalChecks,

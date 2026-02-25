@@ -114,3 +114,77 @@ export interface CanonConfig {
   default_lang: "ko" | "en"
   repo_url?: string
 }
+
+// ── v1.3 metadata (additive — all types above are frozen) ──
+
+export interface StoryMetadata_v1_3 {
+  schema_version: "1.3"
+  canon_ref: string
+  id: string
+  episode: number
+  lang: string
+  title: string
+  timeline: string
+  synopsis: string
+  characters: string[]
+  locations: string[]
+  contributor: string
+  canon_status: "canonical" | "non-canonical" | "derivative"
+  derived_from?: string
+  themes?: string[]
+  canon_events?: string[]
+  word_count?: number
+  temporal_context?: {
+    prev_episode: string | null
+    next_episode: string | null
+    thematic_echoes?: string[]
+  }
+}
+
+export type ParsedMetadataResult =
+  | { version: "1.2"; meta: StoryMetadata; raw: Record<string, unknown> }
+  | { version: "1.3"; meta: StoryMetadata_v1_3; raw: Record<string, unknown> }
+
+export interface RepoModelAny {
+  canonLock: CanonLock | null
+  characters: Set<string>
+  locations: Set<string>
+  episodes: Set<string>
+  stories: Map<string, ParsedMetadataResult>
+}
+
+// ── v3 check types (CheckId/CheckResult/StoryCheckReport/RepoCheckReport are frozen) ──
+
+export type CheckIdV3 =
+  | "metadata_schema_valid"
+  | "characters_valid"
+  | "locations_valid"
+  | "timeline_consistent"
+  | "continuity_valid"
+  | "canon_version_match"
+  | "contributor_valid"
+  | "derived_from_valid"
+
+export interface CheckResultV3 {
+  id: CheckIdV3
+  pass: boolean
+  message?: string
+}
+
+export interface StoryCheckReportV3 {
+  storyId: string
+  checks: CheckResultV3[]
+  allPass: boolean
+}
+
+export interface RepoCheckReportV3 {
+  schemaVersion: "check.v3"
+  summary: {
+    score: number
+    totalChecks: number
+    passingChecks: number
+  }
+  stories: StoryCheckReportV3[]
+  totalStories: number
+  passingStories: number
+}

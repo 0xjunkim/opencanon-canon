@@ -5,8 +5,13 @@ import {
   checkCharacters,
   checkLocations,
   checkContinuity,
+  checkMetadataSchema_v1_3,
+  checkDerivedFrom,
+  validateStory_v1_3,
+  validateRepoAny,
+  validateRepo,
 } from "../core/validate.js"
-import type { StoryMetadata } from "../core/types.js"
+import type { StoryMetadata, StoryMetadata_v1_3, RepoModel, RepoModelAny } from "../core/types.js"
 
 const validMeta: Record<string, unknown> = {
   schema_version: "1.2",
@@ -186,5 +191,181 @@ describe("checkLocations cross-reference", () => {
     const result = checkLocations(meta, new Set(["seoul"]))
     assert.equal(result.pass, false)
     assert.ok(result.message?.includes("atlantis"))
+  })
+})
+
+// ── v1.3 validation tests ──
+
+const validV13Meta: Record<string, unknown> = {
+  schema_version: "1.3",
+  canon_ref: "abc123",
+  id: "ep01",
+  episode: 1,
+  lang: "ko",
+  title: "테스트 제목",
+  timeline: "2025-01-01",
+  synopsis: "시놉시스",
+  characters: [],
+  locations: [],
+  contributor: "tester",
+  canon_status: "canonical",
+}
+
+describe("checkMetadataSchema_v1_3", () => {
+  it("accepts valid v1.3 metadata", () => {
+    const result = checkMetadataSchema_v1_3(validV13Meta)
+    assert.equal(result.pass, true)
+  })
+
+  it("requires lang field", () => {
+    const { lang: _, ...noLang } = validV13Meta
+    const result = checkMetadataSchema_v1_3(noLang)
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("lang"))
+  })
+
+  it("requires flat string title (not bilingual object)", () => {
+    const result = checkMetadataSchema_v1_3({ ...validV13Meta, title: { ko: "t", en: "t" } })
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("title must be a string"))
+  })
+
+  it("accepts derivative canon_status", () => {
+    const result = checkMetadataSchema_v1_3({ ...validV13Meta, canon_status: "derivative" })
+    assert.equal(result.pass, true)
+  })
+
+  it("rejects unknown canon_status", () => {
+    const result = checkMetadataSchema_v1_3({ ...validV13Meta, canon_status: "fan-fiction" })
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("canon_status"))
+  })
+
+  it("rejects v1.2 schema_version", () => {
+    const result = checkMetadataSchema_v1_3({ ...validV13Meta, schema_version: "1.2" })
+    assert.equal(result.pass, false)
+  })
+
+  it("rejects Zalgo title", () => {
+    const zalgoTitle = "H" + "\u0300".repeat(10) + "ello"
+    const result = checkMetadataSchema_v1_3({ ...validV13Meta, title: zalgoTitle })
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("combining marks"))
+  })
+
+  it("rejects bidi override in synopsis", () => {
+    const result = checkMetadataSchema_v1_3({ ...validV13Meta, synopsis: "text\u202Eevil" })
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("prohibited Unicode"))
+  })
+
+  it("validates slug match", () => {
+    const result = checkMetadataSchema_v1_3(validV13Meta, "wrong-slug")
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("wrong-slug"))
+  })
+})
+
+describe("checkDerivedFrom", () => {
+  const baseMeta = validV13Meta as unknown as StoryMetadata_v1_3
+  const episodes = new Set(["ep01", "ep02"])
+
+  it("passes for non-derivative without derived_from", () => {
+    const result = checkDerivedFrom(baseMeta, episodes)
+    assert.equal(result.pass, true)
+  })
+
+  it("fails for derivative without derived_from", () => {
+    const meta = { ...baseMeta, canon_status: "derivative" } as StoryMetadata_v1_3
+    const result = checkDerivedFrom(meta, episodes)
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("requires derived_from"))
+  })
+
+  it("fails for non-derivative with derived_from", () => {
+    const meta = { ...baseMeta, derived_from: "ep01" } as StoryMetadata_v1_3
+    const result = checkDerivedFrom(meta, episodes)
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("should only be set"))
+  })
+
+  it("fails for dangling derived_from reference", () => {
+    const meta = { ...baseMeta, canon_status: "derivative", derived_from: "ghost" } as StoryMetadata_v1_3
+    const result = checkDerivedFrom(meta, episodes)
+    assert.equal(result.pass, false)
+    assert.ok(result.message?.includes("ghost"))
+  })
+
+  it("passes for valid derivative with existing derived_from", () => {
+    const meta = { ...baseMeta, canon_status: "derivative", derived_from: "ep01" } as StoryMetadata_v1_3
+    const result = checkDerivedFrom(meta, episodes)
+    assert.equal(result.pass, true)
+  })
+})
+
+describe("validateRepoAny", () => {
+  it("v1.2 story produces 7 checks", () => {
+    const model: RepoModelAny = {
+      canonLock: null,
+      characters: new Set(),
+      locations: new Set(),
+      episodes: new Set(["ep01"]),
+      stories: new Map([
+        ["ep01", { version: "1.2" as const, meta: validMeta as unknown as StoryMetadata, raw: validMeta }],
+      ]),
+    }
+    const report = validateRepoAny(model)
+    assert.equal(report.schemaVersion, "check.v3")
+    assert.equal(report.stories[0].checks.length, 7)
+  })
+
+  it("v1.3 story produces 8 checks", () => {
+    const model: RepoModelAny = {
+      canonLock: null,
+      characters: new Set(),
+      locations: new Set(),
+      episodes: new Set(["ep01"]),
+      stories: new Map([
+        ["ep01", { version: "1.3" as const, meta: validV13Meta as unknown as StoryMetadata_v1_3, raw: validV13Meta }],
+      ]),
+    }
+    const report = validateRepoAny(model)
+    assert.equal(report.schemaVersion, "check.v3")
+    assert.equal(report.stories[0].checks.length, 8)
+    assert.equal(report.stories[0].checks[7].id, "derived_from_valid")
+  })
+
+  it("mixed v1.2 + v1.3 stories in same repo", () => {
+    const model: RepoModelAny = {
+      canonLock: null,
+      characters: new Set(),
+      locations: new Set(),
+      episodes: new Set(["ep01", "ep02"]),
+      stories: new Map([
+        ["ep01", { version: "1.2" as const, meta: validMeta as unknown as StoryMetadata, raw: validMeta }],
+        ["ep02", { version: "1.3" as const, meta: { ...validV13Meta, id: "ep02" } as unknown as StoryMetadata_v1_3, raw: { ...validV13Meta, id: "ep02" } }],
+      ]),
+    }
+    const report = validateRepoAny(model)
+    assert.equal(report.totalStories, 2)
+    assert.equal(report.stories[0].checks.length, 7) // v1.2
+    assert.equal(report.stories[1].checks.length, 8) // v1.3
+  })
+})
+
+describe("validateRepo v1.2 unchanged (regression)", () => {
+  it("produces check.v2 report with 7 checks", () => {
+    const model: RepoModel = {
+      canonLock: null,
+      characters: new Set(),
+      locations: new Set(),
+      episodes: new Set(["ep01"]),
+      stories: new Map([
+        ["ep01", { meta: validMeta as unknown as StoryMetadata, raw: validMeta }],
+      ]),
+    }
+    const report = validateRepo(model)
+    assert.equal(report.schemaVersion, "check.v2")
+    assert.equal(report.stories[0].checks.length, 7)
   })
 })
