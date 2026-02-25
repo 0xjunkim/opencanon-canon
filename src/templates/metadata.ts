@@ -35,3 +35,23 @@ export function metadataTemplate(id: string, contributorOrOpts: string | Metadat
   if (opts.canonEvents && opts.canonEvents.length > 0) meta["canon_events"] = opts.canonEvents
   return JSON.stringify(meta, null, 2) + "\n"
 }
+
+// ── v1.3 template (v1.2 template above is frozen) ──
+
+export function metadataTemplate_v1_3(id: string, contributor: string, lang: string): string {
+  const meta: Record<string, unknown> = {
+    schema_version: "1.3",
+    canon_ref: "",
+    id,
+    episode: 0,
+    lang,
+    title: "",
+    timeline: new Date().toISOString().slice(0, 10),
+    synopsis: "",
+    characters: [],
+    locations: [],
+    contributor,
+    canon_status: "canonical",
+  }
+  return JSON.stringify(meta, null, 2) + "\n"
+}
