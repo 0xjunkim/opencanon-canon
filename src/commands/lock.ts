@@ -70,12 +70,19 @@ export const lockCommand = new Command("lock")
       const report = validateRepo(model)
       if (report.totalStories > 0 && report.passingStories < report.totalStories) {
         const failing = report.stories.filter(s => !s.allPass)
-        console.error("Error: compliance check failed — lock refused")
-        for (const s of failing) {
-          const fails = s.checks.filter(c => !c.pass).map(c => c.id).join(", ")
-          console.error(`  ${s.storyId}: ${fails}`)
+        // When --update-refs is set, canon_version_match failures are expected and will be fixed.
+        // Filter them out of the blocking check.
+        const blockingFails = opts.updateRefs
+          ? failing.filter(s => s.checks.some(c => !c.pass && c.id !== "canon_version_match"))
+          : failing
+        if (blockingFails.length > 0) {
+          console.error("Error: compliance check failed — lock refused")
+          for (const s of blockingFails) {
+            const fails = s.checks.filter(c => !c.pass && (opts.updateRefs ? c.id !== "canon_version_match" : true)).map(c => c.id).join(", ")
+            console.error(`  ${s.storyId}: ${fails}`)
+          }
+          process.exit(1)
         }
-        process.exit(1)
       }
     }
 
