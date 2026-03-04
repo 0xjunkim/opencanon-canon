@@ -1,9 +1,10 @@
 import { Command } from "commander"
 import { resolve, join } from "node:path"
-import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync, statSync, createWriteStream } from "node:fs"
 import { createHash } from "node:crypto"
 import { metadataTemplate } from "../templates/metadata.js"
 import { loadConfig } from "./login.js"
+import { ApiClient } from "../api.js"
 
 const OPENCANON_HOST = "https://opencanon.co"
 
@@ -25,6 +26,8 @@ interface RefEntry {
 interface CanonRefs {
   episode: string
   createdAt: string
+  direction: string
+  generated: boolean
   refs: RefEntry[]
 }
 
@@ -37,7 +40,7 @@ function readOwnContext(root: string): { content: string; storyId: string } | nu
     try {
       return statSync(join(storiesDir, d)).isDirectory()
     } catch { return false }
-  }).sort().reverse() // most recent episode first (alphabetical reverse)
+  }).sort().reverse()
 
   for (const storyDir of storyDirs) {
     const candidates = [
@@ -48,67 +51,12 @@ function readOwnContext(root: string): { content: string; storyId: string } | nu
     ]
     for (const p of candidates) {
       if (existsSync(p)) {
-        const content = readFileSync(p, "utf-8").slice(0, 800) // bounded
+        const content = readFileSync(p, "utf-8").slice(0, 800)
         return { content, storyId: storyDir }
       }
     }
   }
   return null
-}
-
-// ─── Fetch notebook from opencanon API ───────────────────────────────────────
-async function fetchNotebook(host: string, token: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${host}/api/notebook`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return null
-    const data = await res.json() as { content?: string }
-    return data.content?.slice(0, 600) ?? null // bounded
-  } catch { return null }
-}
-
-// ─── Fetch cross-refs from public opencanon registry ─────────────────────────
-async function fetchCrossRefs(
-  host: string,
-  skipOwner: string
-): Promise<Array<{ owner: string; repo: string; content: string }>> {
-  try {
-    const res = await fetch(`${host}/api/registry`)
-    if (!res.ok) return []
-    const repos = await res.json() as Array<{ owner: string; repo: string; title?: Record<string, string> }>
-    const results: Array<{ owner: string; repo: string; content: string }> = []
-
-    for (const r of repos.slice(0, 3)) { // max 3 cross-refs (bounded)
-      if (r.owner.toLowerCase() === skipOwner.toLowerCase()) continue
-      const titleText = Object.values(r.title ?? {}).join(" / ")
-      const snippet = `${r.owner}/${r.repo} — ${titleText}`.slice(0, 200)
-      results.push({ owner: r.owner, repo: r.repo, content: snippet })
-    }
-    return results
-  } catch { return [] }
-}
-
-// ─── Fire-and-forget attestation for cross-referenced repos ──────────────────
-async function attestCrossRefs(
-  host: string,
-  token: string,
-  owner: string,
-  crossRefs: Array<{ owner: string; repo: string }>
-): Promise<void> {
-  for (const ref of crossRefs) {
-    try {
-      await fetch(`${host}/api/attest`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-          "X-Canon-Owner": owner,
-        },
-        body: JSON.stringify({ target: `${ref.owner}/${ref.repo}` }),
-      })
-    } catch { /* silent — attest is best-effort */ }
-  }
 }
 
 // ─── Detect current repo owner from .canonrc ─────────────────────────────────
@@ -123,19 +71,41 @@ function detectOwner(root: string): string {
   return "unknown"
 }
 
-// ─── Build chapter scaffold ───────────────────────────────────────────────────
-function buildScaffold(episodeSlug: string, refs: RefEntry[]): string {
-  const refBlock = refs
+// ─── Detect repo name from git remote ────────────────────────────────────────
+function detectRepo(root: string): string {
+  try {
+    const { execSync } = _require("node:child_process") as typeof import("node:child_process")
+    const remote = execSync("git remote get-url origin", {
+      cwd: root, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"]
+    }).trim()
+    const match = remote.match(/github\.com[:/][^/]+\/([^/.\s]+)/)
+    if (match) return match[1].replace(/\.git$/, "")
+  } catch { /* no remote */ }
+  return root.split("/").pop() || "canon"
+}
+
+// ─── Build ref header block ───────────────────────────────────────────────────
+function buildRefHeader(refs: RefEntry[]): string {
+  return refs
     .map((r) => `<!--ref:#${r.hash} source:${r.source}${r.storyId ? ` story:${r.storyId}` : ""}-->`)
     .join("\n")
+}
 
-  return `${refBlock}
+// ─── Build chapter scaffold (no --generate) ───────────────────────────────────
+function buildScaffold(episodeSlug: string, refs: RefEntry[], direction: string): string {
+  const refBlock = buildRefHeader(refs)
+  const directionNote = direction !== "continue naturally"
+    ? `\n<!-- direction: ${direction} -->`
+    : ""
+
+  return `${refBlock}${directionNote}
 
 # ${episodeSlug.replace(/^ep\d+-/, "").replace(/-/g, " ")}
 
 ---
 
 *[이야기를 이어가세요]*
+*참조: ${refs.length}개 | direction: ${direction}*
 
 `
 }
@@ -145,40 +115,55 @@ function buildScaffold(episodeSlug: string, refs: RefEntry[]): string {
 export const writeCommand = new Command("write")
   .description("Scaffold next chapter with lossy cross-referenced context")
   .argument("<episode-slug>", "Episode slug (e.g. ep02-title)")
+  .option("--generate", "Generate prose via opencanon web app (requires: canon login)")
+  .option("--direction <text>", "Writing direction hint (used with --generate)", "continue naturally")
   .option("--no-refs", "Skip cross-referencing other novels")
   .option("--no-notebook", "Skip notebook context")
   .option("--host <url>", "opencanon host", OPENCANON_HOST)
-  .action(async (episodeSlug: string, opts: { refs: boolean; notebook: boolean; host: string }) => {
+  .option("--token <tok>", "CLI token (overrides ~/.canon/config.json)")
+  .action(async (episodeSlug: string, opts: {
+    generate: boolean
+    direction: string
+    refs: boolean
+    notebook: boolean
+    host: string
+    token?: string
+  }) => {
     const root = resolve(".")
     const host = opts.host ?? OPENCANON_HOST
     const config = loadConfig()
+    const token = opts.token ?? config?.token
     const owner = detectOwner(root)
+    const repo = detectRepo(root)
+
+    const api = token ? new ApiClient(host, token) : null
 
     console.log("")
     console.log(`[canon write] ${episodeSlug}`)
+    if (opts.generate) console.log(`[direction] ${opts.direction}`)
     console.log("컨텍스트를 수집하고 있습니다...\n")
 
-    const refs: RefEntry[] = []
+    const refEntries: RefEntry[] = []
     const now = new Date().toISOString()
 
-    // ── 1. Own recent chapter ──────────────────────────────────────────────
+    // ── ① Own recent chapter ──────────────────────────────────────────────
     const own = readOwnContext(root)
     if (own) {
-      refs.push({
+      refEntries.push({
         hash: sha12(own.content),
         source: "self",
         storyId: own.storyId,
         preview: own.content.slice(0, 60),
         createdAt: now,
       })
-      console.log(`  ✓ 자체 참조: ${own.storyId} (#${sha12(own.content)})`)
+      console.log(`  ✓ 자체 캐논: ${own.storyId} (#${sha12(own.content)})`)
     }
 
-    // ── 2. Notebook ────────────────────────────────────────────────────────
-    if (opts.notebook !== false && config?.token) {
-      const notebook = await fetchNotebook(host, config.token)
+    // ── ② Notebook ────────────────────────────────────────────────────────
+    if (opts.notebook !== false && api) {
+      const notebook = await api.getNotebook()
       if (notebook && notebook.trim()) {
-        refs.push({
+        refEntries.push({
           hash: sha12(notebook),
           source: "notebook",
           preview: notebook.slice(0, 60),
@@ -190,29 +175,40 @@ export const writeCommand = new Command("write")
       }
     }
 
-    // ── 3. Cross-refs ──────────────────────────────────────────────────────
-    if (opts.refs !== false) {
-      const crossRefs = await fetchCrossRefs(host, owner)
-      for (const cr of crossRefs) {
-        refs.push({
-          hash: sha12(cr.content),
+    // ── ③ Cross-refs ──────────────────────────────────────────────────────
+    const crossRefTargets: Array<{ owner: string; repo: string }> = []
+    if (opts.refs !== false && api) {
+      const registry = await api.getRegistry()
+      for (const r of registry.slice(0, 3)) {
+        if (r.owner.toLowerCase() === owner.toLowerCase()) continue
+        const titleText = Object.values(r.title ?? {}).join(" / ")
+        const snippet = `${r.owner}/${r.repo} — ${titleText}`.slice(0, 200)
+        refEntries.push({
+          hash: sha12(snippet),
           source: "cross",
-          owner: cr.owner,
-          repo: cr.repo,
-          preview: cr.content.slice(0, 60),
+          owner: r.owner,
+          repo: r.repo,
+          preview: snippet.slice(0, 60),
           createdAt: now,
         })
-        console.log(`  ✓ 교차 참조: ${cr.owner}/${cr.repo} (#${sha12(cr.content)})`)
+        crossRefTargets.push({ owner: r.owner, repo: r.repo })
+        console.log(`  ✓ 교차 캐논: ${r.owner}/${r.repo} (#${sha12(snippet)})`)
       }
 
-      // Attest each cross-referenced novel (best-effort, fire-and-forget)
-      if (crossRefs.length > 0 && config?.token) {
-        attestCrossRefs(host, config.token, owner, crossRefs).catch(() => {})
+      // Attest (fire-and-forget)
+      if (crossRefTargets.length > 0) {
+        api.attest(owner, crossRefTargets).catch(() => {})
       }
     }
 
-    // ── 4. Save .canon-refs.json ───────────────────────────────────────────
-    const refsRecord: CanonRefs = { episode: episodeSlug, createdAt: now, refs }
+    // ── Save .canon-refs.json ─────────────────────────────────────────────
+    const refsRecord: CanonRefs = {
+      episode: episodeSlug,
+      createdAt: now,
+      direction: opts.direction,
+      generated: opts.generate,
+      refs: refEntries,
+    }
     const refsPath = join(root, ".canon-refs.json")
     let existing: CanonRefs[] = []
     if (existsSync(refsPath)) {
@@ -220,19 +216,9 @@ export const writeCommand = new Command("write")
     }
     writeFileSync(refsPath, JSON.stringify([...existing, refsRecord], null, 2) + "\n")
 
-    // ── 5. Scaffold episode ────────────────────────────────────────────────
+    // ── Scaffold dirs + metadata ──────────────────────────────────────────
     const storyDir = join(root, "stories", episodeSlug)
-    if (!existsSync(storyDir)) {
-      mkdirSync(storyDir, { recursive: true })
-    }
-
-    const chapterPath = join(storyDir, "chapter-01.md")
-    if (!existsSync(chapterPath)) {
-      writeFileSync(chapterPath, buildScaffold(episodeSlug, refs))
-      console.log(`\n  ✓ 챕터 생성: stories/${episodeSlug}/chapter-01.md`)
-    } else {
-      console.log(`\n  ○ 챕터 이미 존재: stories/${episodeSlug}/chapter-01.md`)
-    }
+    if (!existsSync(storyDir)) mkdirSync(storyDir, { recursive: true })
 
     const metaPath = join(storyDir, "metadata.json")
     if (!existsSync(metaPath)) {
@@ -252,19 +238,81 @@ export const writeCommand = new Command("write")
           themes: [],
         })
       )
-      console.log(`  ✓ 메타데이터: stories/${episodeSlug}/metadata.json`)
+      console.log(`\n  ✓ 메타데이터: stories/${episodeSlug}/metadata.json`)
     }
 
-    // ── Summary ────────────────────────────────────────────────────────────
+    const chapterPath = join(storyDir, "chapter-01.md")
+
+    // ── ④ Generate or scaffold ────────────────────────────────────────────
+    if (opts.generate && api) {
+      console.log(`\n생성 중... (direction: ${opts.direction})\n`)
+
+      if (existsSync(chapterPath)) {
+        console.log(`  ⚠ ${chapterPath} already exists — overwriting with generated content`)
+      }
+
+      const refHeader = buildRefHeader(refEntries)
+      let generated = ""
+
+      try {
+        process.stdout.write("  ")
+        for await (const chunk of api.generate({
+          owner,
+          repo,
+          episode: episodeSlug,
+          direction: opts.direction,
+          refs: refEntries,
+        })) {
+          process.stdout.write(chunk)
+          generated += chunk
+        }
+        console.log("\n")
+
+        // Write ref header + generated prose
+        writeFileSync(chapterPath, `${refHeader}\n\n${generated}`)
+        console.log(`  ✓ 챕터 생성 (AI): stories/${episodeSlug}/chapter-01.md`)
+
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error(`\n  ✗ 생성 실패: ${message}`)
+        console.log(`  → scaffold 모드로 폴백합니다`)
+        if (!existsSync(chapterPath)) {
+          writeFileSync(chapterPath, buildScaffold(episodeSlug, refEntries, opts.direction))
+        }
+        console.log(`  ✓ 챕터 scaffold: stories/${episodeSlug}/chapter-01.md`)
+      }
+
+    } else {
+      // Plain scaffold
+      if (!existsSync(chapterPath)) {
+        writeFileSync(chapterPath, buildScaffold(episodeSlug, refEntries, opts.direction))
+        console.log(`\n  ✓ 챕터 scaffold: stories/${episodeSlug}/chapter-01.md`)
+      } else {
+        console.log(`\n  ○ 챕터 이미 존재: stories/${episodeSlug}/chapter-01.md`)
+      }
+    }
+
+    // ── Summary ───────────────────────────────────────────────────────────
     console.log("")
     console.log("────────────────────────────────────────")
     console.log(`에피소드:   ${episodeSlug}`)
-    console.log(`참조 수:    ${refs.length}개 (비가역 hash)`)
+    console.log(`참조 수:    ${refEntries.length}개 (비가역 hash)`)
     console.log(`참조 기록:  .canon-refs.json`)
+    console.log(`생성:       ${opts.generate ? "웹앱 AI" : "scaffold"}`)
+    console.log(`direction:  ${opts.direction}`)
     console.log("")
     console.log("다음 단계:")
-    console.log(`  1. stories/${episodeSlug}/chapter-01.md 열고 이야기를 이어가세요`)
-    console.log(`  2. stories/${episodeSlug}/metadata.json 제목/시놉시스 채우기`)
-    console.log(`  3. canon lock --update-refs && canon check`)
+    if (!opts.generate) {
+      console.log(`  1. stories/${episodeSlug}/chapter-01.md 열고 이야기를 이어가세요`)
+      console.log(`  2. stories/${episodeSlug}/metadata.json 제목/시놉시스 채우기`)
+    } else {
+      console.log(`  1. stories/${episodeSlug}/chapter-01.md 검토 및 수정`)
+      console.log(`  2. stories/${episodeSlug}/metadata.json 제목/시놉시스 채우기`)
+    }
+    console.log(`  3. canon push (check → lock → commit → push → publish)`)
     console.log("────────────────────────────────────────")
   })
+
+// ─── require shim for detectRepo sync ────────────────────────────────────────
+import { createRequire } from "node:module"
+const _require = createRequire(import.meta.url)
