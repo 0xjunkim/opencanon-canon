@@ -1,243 +1,133 @@
-# Command Reference — @opencanon/canon
+# Commands
 
-All commands accept `--help` for inline documentation.
-ID constraint for all `<id>` arguments: `/^[a-z0-9][a-z0-9_-]*$/`
+All commands: `canon <command> --help` for inline docs.
+ID constraint: lowercase alphanumeric + hyphens/underscores. `/^[a-z0-9][a-z0-9_-]*$/`
 
 ---
 
 ## canon setup [dir]
 
-Interactive wizard that scaffolds a complete novel repository from 4 questions.
+Interactive wizard. Scaffolds a complete novel repo from 5 questions.
 
 ```bash
-canon setup           # scaffold in current directory
-canon setup ./my-repo # scaffold in specified directory
+canon setup           # current directory
+canon setup ./novel   # specified directory
 ```
 
-**What it creates:**
-- `canon/characters/{protagonist-id}/definition.json`
-- `canon/worldbuilding/locations/{inferred-location}.json`
-- `stories/ep01-beginning/metadata.json` + `content.md`
-- `.canonrc.json` — CLI config (author, default_lang)
-- `CONVENTIONS.md` — writing conventions template
-- `GETTING-STARTED.md` — author guide
-
-**Questions asked:**
-1. Novel title
-2. Protagonist name (+ Latin ID if name is non-ASCII)
-3. Genre (free text)
-4. Synopsis / world background (free text)
-5. One thematic keyword
-
-**Note:** Does not create or push a GitHub repo. Create the repo at https://github.com/new first, clone it, then run `canon setup` inside.
+Creates: `canon/`, `stories/ep01-beginning/`, `.canonrc.json`, `CONVENTIONS.md`, initial git commit.
 
 ---
 
 ## canon login
 
-Authenticate the CLI with your opencanon.co token.
+Authenticate with opencanon.co.
 
 ```bash
 canon login
-# Prompts:
-#   Host [https://opencanon.co]:
-#   Token: oct_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+canon login --host https://your-instance.com
 ```
 
-Token source: https://opencanon.co/settings → CLI Token → Generate
-
-Credentials saved to `~/.canon/config.json` with mode `0600`.
-
-To verify authentication:
-```bash
-canon login   # re-run, it will show current auth status
-```
+Token source: opencanon.co/settings → **CLI Token** → Generate (`oct_...`)
+Saved to `~/.canon/config.json` (mode `0600`).
 
 ---
 
-## canon write \<episode-id\>
+## canon write \<slug\>
 
-Generate a 3-hop cross-referenced writing scaffold for the given episode ID.
+Collect 3-hop context and scaffold (or generate) the next episode.
 
 ```bash
-canon write ep02-the-road
-canon write ep03-turning-point --no-notebook   # skip notebook context
-canon write ep04-arrival --no-refs             # skip cross-references
-canon write ep05-end --host https://other.co  # custom API host
+canon write ep02-title
+canon write ep02-title --generate
+canon write ep02-title --generate --direction "reveal the secret here"
+canon write ep02-title --no-refs --no-notebook
 ```
 
-**Context sources (bounded, lossy):**
-1. **self** — latest episode from current repo (≤800 chars, truncated)
-2. **notebook** — personal notes from opencanon.co/notebook (≤600 chars, requires token)
-3. **cross** — snippets from ≤3 other registered novels (≤200 chars each)
+| Option | Default | Description |
+|---|---|---|
+| `--generate` | off | Call web app AI → stream prose to chapter-01.md |
+| `--direction` | `"continue naturally"` | Writing direction hint (used with --generate) |
+| `--no-refs` | — | Skip cross-canon context |
+| `--no-notebook` | — | Skip notebook context |
 
-Each source is hashed SHA-256 (12 chars) and stored in `.canon-refs.json`. Hashes are irreversible — the original content cannot be reconstructed from them. Cross-referenced novels receive one attestation (+1 inbound ref on opencanon.co).
+**3 reference sources:**
+1. Self — latest chapter from this repo (≤800 chars)
+2. Notebook — opencanon.co/notebook content (≤600 chars)
+3. Cross — up to 3 other registered novels (≤200 chars each)
 
-**Output:** `stories/{episode-id}/scaffold.md` with `<!--ref:#hash source:self/notebook/cross-->` markers.
+Ref hashes saved to `.canon-refs.json`. Cross-refs trigger attestation (+1) on the target novel.
 
-**After generation:** Paste the context prompt into any AI (Claude, ChatGPT, Gemini, etc.) to write the episode. Then submit via https://opencanon.co/write/{username}/{repo}.
+---
 
-**.canon-refs.json format:**
-```json
-[
-  {
-    "episode": "ep02-the-road",
-    "createdAt": "2026-02-25T17:00:00.000Z",
-    "refs": [
-      { "hash": "a3f9c2b1e4d7", "source": "self", "storyId": "ep01-genesis", "preview": "The city was quiet...", "createdAt": "..." },
-      { "hash": "7e2c1a9b3f05", "source": "cross", "owner": "0xjunkim", "repo": "the-seed", "preview": "...", "createdAt": "..." }
-    ]
-  }
-]
+## canon push [dir]
+
+Full pipeline in one command.
+
+```bash
+canon push
+canon push --message "ep03: resolution arc"
+canon push --dry-run       # preview steps without executing
+canon push --no-publish    # skip publish after git push
 ```
+
+Steps: `canon check` → `canon lock` → `git add -A && git commit && git push` → `canon publish`
+
+Auto-generates commit message from new story slugs if `--message` is omitted.
 
 ---
 
 ## canon check [dir]
 
-Run all 7 compliance checks on every episode in the repo.
+Run 7 compliance checks. Exit 0 = all pass, exit 1 = any fail.
 
 ```bash
-canon check          # check current directory
-canon check ./repo   # check specified directory
+canon check
+canon check ./other-novel
 ```
 
-**Exit codes:**
-- `0` — all 7 checks pass for all episodes
-- `1` — any check fails, or no episodes found
-
-**Output format:**
-```
-stories/ep01-genesis
-  ✓ metadata_schema_valid
-  ✓ characters_valid
-  ✓ locations_valid
-  ✓ timeline_consistent
-  ✓ continuity_valid
-  ✓ canon_version_match
-  ✓ contributor_valid
-
-1/1 stories passing. Score: 1.00
-```
-
-**Check IDs** (stable, never removed):
-
-| ID | Validates |
-|---|---|
-| `metadata_schema_valid` | Required fields, correct types, `schema_version === "1.2"` |
-| `characters_valid` | Each `characters[]` entry has a file in `canon/characters/` |
-| `locations_valid` | Each `locations[]` entry has a file in `canon/worldbuilding/locations/` |
-| `timeline_consistent` | `timeline` is valid `YYYY-MM-DD`, round-trip stable |
-| `continuity_valid` | `prev_episode`, `next_episode`, `thematic_echoes` resolve (null ok) |
-| `canon_version_match` | `canon_ref` matches `canon.lock.json` (skipped in genesis window: first 30 days) |
-| `contributor_valid` | `contributor` is present and non-empty string |
+Checks: `metadata_schema_valid`, `characters_valid`, `locations_valid`, `timeline_consistent`, `continuity_valid`, `canon_version_match`, `contributor_valid`
 
 ---
 
 ## canon lock [dir]
 
-Regenerate `canon.lock.json` from the current state of `canon/`.
+Regenerate `canon.lock.json`. Run after adding characters, locations, or structural changes.
 
 ```bash
 canon lock
-canon lock ./repo
-```
-
-**When to run:**
-- After adding/modifying characters or locations
-- After changing `canon_ref` in metadata
-- Before publishing if `canon_version_match` is failing
-
-**Genesis exception:** During the first 30 days after repo creation, `canon_version_match` is skipped automatically. Lock file is still generated.
-
-**canon.lock.json format:**
-```json
-{
-  "schema_version": "lock.v1",
-  "canon_commit": "{owner}/{repo}",
-  "lockedAt": "2026-02-25T17:00:00.000Z",
-  "checksum": "sha256:..."
-}
+canon lock --update-refs   # also updates canon_ref in all metadata.json files
 ```
 
 ---
 
-## canon publish \<episode-id\>
+## canon publish [dir]
 
-Mark an episode as published on opencanon.co.
+Register or update canon on opencanon.co. Runs `canon check` first.
 
 ```bash
-canon publish ep01-genesis
-canon publish ep02-the-road --host https://opencanon.co
+canon publish
+canon publish --dry-run
 ```
-
-**Requirements:**
-- Must be authenticated (`canon login`)
-- Repo must be registered on opencanon.co
-- Token owner must match repo owner
-
-**What it does:** Sends a POST to `/api/publish` with the token + episode ID. Updates the episode's visibility on the story page. Does **not** commit to git (commit first).
 
 ---
 
-## canon new story \<id\>
+## canon new
 
-Create a new episode metadata template.
-
-```bash
-canon new story ep02-the-road
-# Creates: stories/ep02-the-road/metadata.json
-```
-
-Populates `canon_ref` from `.canonrc.json` if available.
-
----
-
-## canon new character \<id\>
-
-Create a new character definition.
+Create templates for new canon entities.
 
 ```bash
-canon new character isia
-# Creates: canon/characters/isia/definition.json
+canon new story <id>        # stories/<id>/metadata.json
+canon new character <id>    # canon/characters/<id>/definition.json
+canon new location <id>     # canon/worldbuilding/locations/<id>.json
 ```
-
-After creating, run `canon lock` to update `canon.lock.json`.
-
----
-
-## canon new location \<id\>
-
-Create a new location definition.
-
-```bash
-canon new location seoul-tower
-# Creates: canon/worldbuilding/locations/seoul-tower.json
-```
-
-After creating, run `canon lock` to update `canon.lock.json`.
 
 ---
 
 ## canon init [dir]
 
-Low-level scaffold: creates directory structure without the interactive wizard.
+Minimal scaffold (no interactive questions). Prefer `canon setup` for new novels.
 
 ```bash
-canon init           # scaffold in current directory
-canon init ./repo    # scaffold in specified directory
+canon init
+canon init ./my-novel
 ```
-
-Creates: `canon/characters/`, `canon/worldbuilding/locations/`, `stories/`, `.canonrc.json`, `CONVENTIONS.md`
-
-**Prefer `canon setup` for new novels** — it includes the interactive questions and pre-populates characters and locations.
-
----
-
-## Global options
-
-| Flag | Description |
-|---|---|
-| `--host <url>` | Override API host (default: `https://opencanon.co`) |
-| `--version` | Print CLI version |
-| `--help` | Show help for any command |
